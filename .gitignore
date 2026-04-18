@@ -1,0 +1,20 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+build/
+/captures
+.externalNativeBuild/
+.cxx
+local.properties
+.kotlin/
+
+# Release keystore — NO subir al repositorio
+*.jks
+*.keystore
+keystore.properties
+
+# Claude Code local settings
+.claude/
+
