@@ -187,25 +187,16 @@ fun BancalCanvas(
                 )
             }
 
-            // Agrupar plantaciones intercaladas
-            val intercaladas = plantaciones.filter { it.plantacion.intercaladaCon != null }
-            val madresConHija = intercaladas.mapNotNull { it.plantacion.intercaladaCon }.toSet()
-            val normales = plantaciones.filter {
-                it.plantacion.intercaladaCon == null && it.plantacion.id !in madresConHija
-            }
-
-            // Dibujar plantaciones normales (altura completa)
-            for (pv in normales) {
+            // Dibujar TODAS las plantaciones "madre" o libres a altura completa.
+            val hijas = plantaciones.filter { it.plantacion.intercaladaCon != null }
+            val noHijas = plantaciones.filter { it.plantacion.intercaladaCon == null }
+            for (pv in noHijas) {
                 drawPlantacion(pv, pxPerCm, textMeasurer, textColor, estadoColors)
             }
 
-            // Dibujar pares intercalados (split vertical)
-            for (hija in intercaladas) {
-                val madre = plantaciones.find { it.plantacion.id == hija.plantacion.intercaladaCon }
-                if (madre != null) {
-                    drawPlantacionSplit(madre, isTop = true, pxPerCm, textMeasurer, textColor, estadoColors)
-                    drawPlantacionSplit(hija, isTop = false, pxPerCm, textMeasurer, textColor, estadoColors)
-                }
+            // Dibujar cada hija superpuesta en su propia zona (mitad inferior).
+            for (hija in hijas) {
+                drawPlantacionSplit(hija, isTop = false, pxPerCm, textMeasurer, textColor, estadoColors, surfaceColor)
             }
 
             // Preview fantasma de nueva plantación
@@ -261,6 +252,18 @@ private fun DrawScope.drawPlantacion(
         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
     )
 
+    // Puntitos: uno por planta real (slotsX × líneas)
+    val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
+    drawPlantasDots(
+        rectX = x + 2f,
+        rectY = padding,
+        rectW = w - 4f,
+        rectH = h,
+        slotsX = slotsX,
+        lineas = c.lineasPorBancal.coerceAtLeast(1),
+        color = color
+    )
+
     // Emoji del cultivo centrado
     if (w > 30f) {
         val emojiStyle = TextStyle(fontSize = 20.sp)
@@ -298,7 +301,8 @@ private fun DrawScope.drawPlantacionSplit(
     pxPerCm: Float,
     textMeasurer: TextMeasurer,
     textColor: Color,
-    estadoColors: Map<EstadoPlantacion, Color>
+    estadoColors: Map<EstadoPlantacion, Color>,
+    backgroundColor: Color? = null
 ) {
     val p = pv.plantacion
     val c = pv.cultivo
@@ -315,9 +319,20 @@ private fun DrawScope.drawPlantacionSplit(
 
     val color = estadoColors[p.estado] ?: Color.Gray
 
+    // Fondo opaco para ocultar la plantación madre debajo (solo si se suministra).
+    if (backgroundColor != null) {
+        drawRoundRect(
+            color = backgroundColor,
+            topLeft = Offset(x + 2f, topY),
+            size = Size(w - 4f, h),
+            cornerRadius = CornerRadius(6f, 6f),
+            style = Fill
+        )
+    }
+
     drawRoundRect(
         brush = Brush.verticalGradient(
-            colors = listOf(color.copy(alpha = 0.32f), color.copy(alpha = 0.18f)),
+            colors = listOf(color.copy(alpha = 0.45f), color.copy(alpha = 0.25f)),
             startY = topY, endY = topY + h
         ),
         topLeft = Offset(x + 2f, topY),
@@ -334,6 +349,17 @@ private fun DrawScope.drawPlantacionSplit(
         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
     )
 
+    val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
+    drawPlantasDots(
+        rectX = x + 2f,
+        rectY = topY,
+        rectW = w - 4f,
+        rectH = h,
+        slotsX = slotsX,
+        lineas = c.lineasPorBancal.coerceAtLeast(1),
+        color = color
+    )
+
     if (w > 30f) {
         val emojiStyle = TextStyle(fontSize = 16.sp)
         val emojiLayout = textMeasurer.measure(c.icono, emojiStyle)
@@ -346,6 +372,29 @@ private fun DrawScope.drawPlantacionSplit(
             ),
             style = emojiStyle
         )
+    }
+}
+
+private fun DrawScope.drawPlantasDots(
+    rectX: Float,
+    rectY: Float,
+    rectW: Float,
+    rectH: Float,
+    slotsX: Int,
+    lineas: Int,
+    color: Color
+) {
+    if (slotsX <= 0 || lineas <= 0 || rectW <= 6f || rectH <= 6f) return
+    val cellW = rectW / slotsX
+    val cellH = rectH / lineas
+    val radius = (minOf(cellW, cellH) / 4f).coerceIn(1.5f, 4.5f)
+    val dotColor = color.copy(alpha = 0.95f)
+    for (col in 0 until slotsX) {
+        for (row in 0 until lineas) {
+            val cx = rectX + cellW * (col + 0.5f)
+            val cy = rectY + cellH * (row + 0.5f)
+            drawCircle(color = dotColor, radius = radius, center = Offset(cx, cy))
+        }
     }
 }
 

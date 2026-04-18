@@ -118,19 +118,25 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
         .combine(bancal) { plantaciones, b -> calcularHuecos(plantaciones, b.largoCm) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // --- Cantidad máxima que cabe en el hueco actual ---
+    // --- Cantidad máxima que cabe en el hueco (o dentro de la madre si se está intercalando) ---
     val cantidadMaxima: StateFlow<Int> = combine(
-        _selectedCultivo, _posicionX, huecos
-    ) { cultivo, posX, listaHuecos ->
+        _selectedCultivo, _posicionX, huecos, _intercalarCon
+    ) { cultivo, posX, listaHuecos, madre ->
         if (cultivo == null) return@combine 1
         val marco = cultivo.marcoCm
         if (marco <= 0) return@combine 1
-        val hueco = listaHuecos.find { posX >= it.startCm && posX < it.startCm + it.anchoCm }
-        if (hueco != null) {
-            val espacioDesde = hueco.startCm + hueco.anchoCm - posX
+        if (madre != null) {
+            val fin = madre.posicionXCm + madre.anchoCm
+            val espacioDesde = fin - posX
             (espacioDesde / marco).coerceAtLeast(1)
         } else {
-            1
+            val hueco = listaHuecos.find { posX >= it.startCm && posX < it.startCm + it.anchoCm }
+            if (hueco != null) {
+                val espacioDesde = hueco.startCm + hueco.anchoCm - posX
+                (espacioDesde / marco).coerceAtLeast(1)
+            } else {
+                1
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
 
@@ -221,6 +227,14 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
 
     fun seleccionarIntercalacion(plantacion: PlantacionEntity?) {
         _intercalarCon.value = plantacion
+        val cultivo = _selectedCultivo.value
+        if (plantacion != null && cultivo != null && cultivo.marcoCm > 0) {
+            // Al seleccionar madre: reposicionar dentro de ella y ajustar cantidad a lo que cabe.
+            _posicionX.value = plantacion.posicionXCm
+            val cabenEnMadre = plantacion.anchoCm / cultivo.marcoCm
+            _cantidad.value = cabenEnMadre.coerceAtLeast(1)
+            evaluarPosicion()
+        }
     }
 
     private fun evaluarPosicion() {
@@ -253,15 +267,20 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
                 _avisoRotacion.value = null
             }
 
-            // Detectar oportunidades de intercalado
-            val intercalables = asociacionEngine.getIntercalablesEn(cultivo.id, posX, ancho, bancalId)
-            _intercalaciones.value = intercalables.mapNotNull { p ->
+            // Detectar posibles madres (intercalado libre): cualquier plantación libre en la zona
+            val posiblesMadres = asociacionEngine.getPosiblesMadresEn(posX, ancho, bancalId)
+            _intercalaciones.value = posiblesMadres.mapNotNull { p ->
                 val cultivoMadre = repository.getCultivo(p.cultivoId) ?: return@mapNotNull null
                 val asoc = repository.getAsociacion(cultivo.id, p.cultivoId)
-                SugerenciaIntercalado(p, cultivoMadre, asoc?.motivo ?: "Cultivos intercalables")
+                val motivo = when {
+                    asoc?.intercalable == true -> asoc.motivo
+                    asoc != null -> "${asoc.motivo} (intercalado libre)"
+                    else -> "Intercalado libre"
+                }
+                SugerenciaIntercalado(p, cultivoMadre, motivo)
             }
-            // Si ya no hay intercalaciones válidas, limpiar selección
-            if (_intercalarCon.value != null && intercalables.none { it.id == _intercalarCon.value?.id }) {
+            // Si la madre seleccionada ya no está en la zona actual, limpiar
+            if (_intercalarCon.value != null && posiblesMadres.none { it.id == _intercalarCon.value?.id }) {
                 _intercalarCon.value = null
             }
         }
@@ -301,8 +320,8 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
                 fechaSiembra = fechaSiembra,
                 fechaTrasplanteEstimada = fechaTrasplante,
                 fechaCosechaEstimada = fechaCosecha,
-                posicionXCm = madre?.posicionXCm ?: posX,
-                anchoCm = madre?.anchoCm ?: anchoTotal,
+                posicionXCm = posX,
+                anchoCm = anchoTotal,
                 tipoSiembra = tipoSiembra,
                 estado = estado,
                 intercaladaCon = madre?.id

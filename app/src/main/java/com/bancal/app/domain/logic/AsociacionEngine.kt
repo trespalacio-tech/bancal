@@ -104,7 +104,8 @@ class AsociacionEngine(private val repository: BancalRepository) {
     }
 
     /**
-     * Devuelve las plantaciones en una zona con las que se podría intercalar un cultivo dado.
+     * Devuelve las plantaciones en una zona con las que se podría intercalar un cultivo dado,
+     * basándose en asociaciones explícitas de la BD.
      */
     suspend fun getIntercalablesEn(
         cultivoId: Long,
@@ -117,6 +118,21 @@ class AsociacionEngine(private val repository: BancalRepository) {
             p.intercaladaCon == null &&
                 !repository.tieneIntercalado(p.id) &&
                 esIntercalable(cultivoId, p.cultivoId)
+        }
+    }
+
+    /**
+     * Devuelve cualquier plantación libre en la zona con la que se podría intercalar.
+     * No requiere asociación definida: intercalado libre.
+     */
+    suspend fun getPosiblesMadresEn(
+        posicionXCm: Int,
+        anchoCm: Int,
+        bancalId: Long = 1
+    ): List<PlantacionEntity> {
+        val plantaciones = repository.getPlantacionesEnRango(posicionXCm, posicionXCm + anchoCm, bancalId)
+        return plantaciones.filter { p ->
+            p.intercaladaCon == null && !repository.tieneIntercalado(p.id)
         }
     }
 

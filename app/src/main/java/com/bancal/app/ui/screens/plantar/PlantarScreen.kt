@@ -233,7 +233,8 @@ fun PlantarScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Cantidad", style = MaterialTheme.typography.titleMedium)
-                        val cabenBancal = if (cultivo.marcoCm > 0) bancal.largoCm / cultivo.marcoCm else 0
+                        val cabenBancal = if (cultivo.marcoCm > 0)
+                            (bancal.largoCm / cultivo.marcoCm) * cultivo.lineasPorBancal else 0
                         Text(
                             "caben hasta $cabenBancal en el bancal",
                             style = MaterialTheme.typography.labelSmall,
@@ -256,17 +257,25 @@ fun PlantarScreen(
                             }
                             Spacer(Modifier.width(16.dp))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                val totalPlantas = cantidad * cultivo.lineasPorBancal
                                 Text(
-                                    "$cantidad",
+                                    "$totalPlantas",
                                     style = MaterialTheme.typography.headlineMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
-                                    if (cantidad == 1) "planta" else "plantas",
+                                    if (totalPlantas == 1) "planta" else "plantas",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                if (cultivo.lineasPorBancal > 1) {
+                                    Text(
+                                        "$cantidad × ${cultivo.lineasPorBancal} líneas",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(16.dp))
                             FilledIconButton(
@@ -404,7 +413,7 @@ fun PlantarScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(huecosValidos) { hueco ->
-                                val cabenPlantas = hueco.anchoCm / cultivo.marcoCm
+                                val cabenPlantas = (hueco.anchoCm / cultivo.marcoCm) * cultivo.lineasPorBancal
                                 val seleccionado = posicionX >= hueco.startCm
                                         && posicionX < hueco.startCm + hueco.anchoCm
                                 FilterChip(
@@ -464,7 +473,7 @@ fun PlantarScreen(
                         Text("Intercalar cultivo", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Puedes intercalar este cultivo con los siguientes:",
+                            "Selecciona una plantación para intercalar con ella. Podrás ajustar cantidad y posición dentro de la madre.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -558,10 +567,14 @@ fun PlantarScreen(
                     ) {
                         Icon(Icons.Default.Check, null)
                         Spacer(Modifier.width(8.dp))
+                        val totalPlantas = cantidad * cultivo.lineasPorBancal
                         Text(
-                            if (puedeIntercalar) "Intercalar ${cultivo.nombre}"
-                            else if (cantidad == 1) "Plantar ${cultivo.nombre}"
-                            else "Plantar $cantidad × ${cultivo.nombre} (${totalAncho}cm)"
+                            if (puedeIntercalar) {
+                                if (totalPlantas == 1) "Intercalar ${cultivo.nombre}"
+                                else "Intercalar $totalPlantas × ${cultivo.nombre} (${totalAncho}cm)"
+                            }
+                            else if (totalPlantas == 1) "Plantar ${cultivo.nombre}"
+                            else "Plantar $totalPlantas × ${cultivo.nombre} (${totalAncho}cm)"
                         )
                     }
                     Spacer(Modifier.height(16.dp))
