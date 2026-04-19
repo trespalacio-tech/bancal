@@ -156,7 +156,7 @@ fun BancalScreen(
                                 }
                             }
                             IconButton(onClick = {
-                                val texto = construirTextoCompartir(bancal.nombre, largoTexto, bancal.anchoCm, plantaciones)
+                                val texto = construirTextoCompartir(bancal, plantaciones, hoy)
                                 val intent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
                                     putExtra(Intent.EXTRA_SUBJECT, "Mi bancal: ${bancal.nombre}")
@@ -467,26 +467,159 @@ fun BancalScreen(
 }
 
 private fun construirTextoCompartir(
-    nombre: String,
-    largoTexto: String,
-    anchoCm: Int,
-    plantaciones: List<PlantacionVisual>
+    bancal: com.bancal.app.data.db.entity.BancalEntity,
+    plantaciones: List<PlantacionVisual>,
+    hoy: LocalDate
 ): String {
     val sb = StringBuilder()
-    sb.append("🌱 Mi bancal: $nombre\n")
-    sb.append("📏 $largoTexto x ${anchoCm}cm\n\n")
+    val zone = ZoneId.of("Europe/Madrid")
+    val fmtFecha = java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale("es", "ES"))
+
+    val largoTexto = if (bancal.largoCm % 100 == 0) "${bancal.largoCm / 100} m"
+        else "%.1f m".format(bancal.largoCm / 100f)
+    val anchoTexto = "${bancal.anchoCm} cm"
+    val superficieM2 = (bancal.largoCm / 100f) * (bancal.anchoCm / 100f)
+
+    // Cabecera
+    sb.append("🌱 *${bancal.nombre}*\n")
+    sb.append("📏 $largoTexto × $anchoTexto · ${"%.2f".format(superficieM2)} m²\n")
+
     if (plantaciones.isEmpty()) {
-        sb.append("Sin plantaciones activas.")
+        // Si el bancal está en barbecho, mencionarlo
+        val estado = when {
+            bancal.tarpingDesde != null -> "🟫 En tarping (acolchado opaco)"
+            bancal.abonoVerdeDesde != null -> "🌾 Con abono verde" +
+                (bancal.abonoVerdeTipo?.let { " ($it)" } ?: "")
+            else -> "Sin plantaciones activas."
+        }
+        sb.append("\n$estado\n")
     } else {
-        sb.append("Plantaciones activas (${plantaciones.size}):\n")
-        for (pv in plantaciones.sortedBy { it.plantacion.posicionXCm }) {
-            val p = pv.plantacion
-            val finCm = p.posicionXCm + p.anchoCm
-            val estado = p.estado.name.lowercase().replaceFirstChar { it.uppercase() }
-            sb.append("• ${pv.cultivo.icono} ${pv.cultivo.nombre} (${p.posicionXCm}-${finCm}cm) — $estado\n")
+        val ocupadoCm = plantaciones.sumOf { it.plantacion.anchoCm }
+        val porcentaje = if (bancal.largoCm > 0) ocupadoCm * 100 / bancal.largoCm else 0
+        val totalPlantas = plantaciones.sumOf { pv ->
+            val slots = if (pv.cultivo.marcoCm > 0) pv.plantacion.anchoCm / pv.cultivo.marcoCm else 1
+            slots.coerceAtLeast(1) * pv.cultivo.lineasPorBancal.coerceAtLeast(1)
+        }
+        val familias = plantaciones.map { it.cultivo.familia }.toSet().size
+
+        sb.append("📊 $porcentaje% ocupado · $totalPlantas plantas · ${plantaciones.size} plantaciones · $familias familias\n")
+
+        // Resumen por estado
+        val porEstado = plantaciones.groupingBy { it.plantacion.estado }.eachCount()
+        if (porEstado.isNotEmpty()) {
+            val estadoTxt = listOf(
+                com.bancal.app.domain.model.EstadoPlantacion.SEMILLERO to "🌱 Semillero",
+                com.bancal.app.domain.model.EstadoPlantacion.TRASPLANTADO to "🪴 Trasplantado",
+                com.bancal.app.domain.model.EstadoPlantacion.CRECIENDO to "🌿 Creciendo",
+                com.bancal.app.domain.model.EstadoPlantacion.COSECHANDO to "🧺 Cosechando"
+            ).mapNotNull { (est, label) ->
+                porEstado[est]?.let { "$label $it" }
+            }
+            if (estadoTxt.isNotEmpty()) {
+                sb.append(estadoTxt.joinToString("  ·  "))
+                sb.append("\n")
+            }
+        }
+
+        // Cosechas próximas (≤ 21 días)
+        val proximas = plantaciones
+            .map { pv ->
+                val fechaCos = java.time.Instant.ofEpochMilli(pv.plantacion.fechaCosechaEstimada)
+                    .atZone(zone).toLocalDate()
+                Triple(pv, fechaCos, ChronoUnit.DAYS.between(hoy, fechaCos).toInt())
+            }
+            .filter { it.third in 0..21 && it.first.plantacion.estado != com.bancal.app.domain.model.EstadoPlantacion.COSECHANDO }
+            .sortedBy { it.third }
+            .take(3)
+        if (proximas.isNotEmpty()) {
+            sb.append("\n📅 *Próximas cosechas*\n")
+            for ((pv, fecha, dias) in proximas) {
+                val cuando = when (dias) {
+                    0 -> "hoy"
+                    1 -> "mañana"
+                    else -> "en $dias días (${fecha.format(fmtFecha)})"
+                }
+                sb.append("• ${pv.cultivo.icono} ${pv.cultivo.nombre} — $cuando\n")
+            }
+        }
+
+        // Detalle de plantaciones: madres con hijas anidadas
+        sb.append("\n🌿 *Plantaciones* (ordenadas por posición)\n")
+        val byId = plantaciones.associateBy { it.plantacion.id }
+        val hijasPorMadre = plantaciones
+            .filter { it.plantacion.intercaladaCon != null }
+            .groupBy { it.plantacion.intercaladaCon!! }
+        val madresYSolas = plantaciones
+            .filter { it.plantacion.intercaladaCon == null }
+            .sortedBy { it.plantacion.posicionXCm }
+
+        for (pv in madresYSolas) {
+            sb.append(formatearLinea(pv, hoy, zone, prefix = "• "))
+            hijasPorMadre[pv.plantacion.id]?.sortedBy { it.plantacion.posicionXCm }?.forEach { hija ->
+                sb.append(formatearLinea(hija, hoy, zone, prefix = "   └ intercalado: "))
+            }
+        }
+
+        // Hijas huérfanas (madre eliminada): listarlas aparte
+        val huerfanas = plantaciones.filter {
+            it.plantacion.intercaladaCon != null && byId[it.plantacion.intercaladaCon] == null
+        }
+        if (huerfanas.isNotEmpty()) {
+            for (pv in huerfanas.sortedBy { it.plantacion.posicionXCm }) {
+                sb.append(formatearLinea(pv, hoy, zone, prefix = "• "))
+            }
+        }
+
+        // Estado del bancal (tarping / abono verde) si está activo
+        if (bancal.tarpingDesde != null || bancal.abonoVerdeDesde != null) {
+            sb.append("\n🧪 *Estado del bancal*\n")
+            bancal.tarpingDesde?.let {
+                val desde = java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+                val dias = ChronoUnit.DAYS.between(desde, hoy).toInt().coerceAtLeast(0)
+                sb.append("• Tarping activo desde ${desde.format(fmtFecha)} ($dias días)\n")
+            }
+            bancal.abonoVerdeDesde?.let {
+                val desde = java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
+                val dias = ChronoUnit.DAYS.between(desde, hoy).toInt().coerceAtLeast(0)
+                val tipo = bancal.abonoVerdeTipo?.let { t -> " ($t)" } ?: ""
+                sb.append("• Abono verde$tipo desde ${desde.format(fmtFecha)} ($dias días)\n")
+            }
         }
     }
+
+    sb.append("\n— Bancal · huerto biointensivo")
     return sb.toString().trimEnd()
+}
+
+private fun formatearLinea(
+    pv: PlantacionVisual,
+    hoy: LocalDate,
+    zone: ZoneId,
+    prefix: String
+): String {
+    val p = pv.plantacion
+    val c = pv.cultivo
+    val slots = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
+    val totalPl = slots * c.lineasPorBancal.coerceAtLeast(1)
+    val inicioM = p.posicionXCm / 100f
+    val finM = (p.posicionXCm + p.anchoCm) / 100f
+    val rango = "%.1f–%.1f m".format(inicioM, finM)
+    val estado = p.estado.name.lowercase().replaceFirstChar { it.uppercase() }
+
+    val fechaSiembra = java.time.Instant.ofEpochMilli(p.fechaSiembra).atZone(zone).toLocalDate()
+    val diasSembrada = ChronoUnit.DAYS.between(fechaSiembra, hoy).toInt().coerceAtLeast(0)
+    val fechaCos = java.time.Instant.ofEpochMilli(p.fechaCosechaEstimada).atZone(zone).toLocalDate()
+    val diasACos = ChronoUnit.DAYS.between(hoy, fechaCos).toInt()
+
+    val cosechaTxt = when {
+        p.estado == com.bancal.app.domain.model.EstadoPlantacion.COSECHANDO -> "cosechando"
+        diasACos < 0 -> "cosecha pasada"
+        diasACos == 0 -> "cosecha hoy"
+        else -> "cosecha en ${diasACos}d"
+    }
+
+    val plantasTxt = if (totalPl == 1) "1 planta" else "$totalPl plantas"
+    return "$prefix${c.icono} ${c.nombre} · $rango · $plantasTxt · $estado · hace ${diasSembrada}d · $cosechaTxt\n"
 }
 
 @Composable
