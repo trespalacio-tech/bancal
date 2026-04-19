@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
         AlertaEntity::class,
         DiarioEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -336,6 +336,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE cultivos ADD COLUMN necesitaTutor INTEGER NOT NULL DEFAULT 0")
+                // Tomates (1, 41, 42, 43), Pepino (7), Judía de enrame (49), Guisante (11)
+                val conTutor = listOf(1, 41, 42, 43, 7, 49, 11)
+                for (id in conTutor) {
+                    db.execSQL("UPDATE cultivos SET necesitaTutor = 1 WHERE id = $id")
+                }
+            }
+        }
+
         fun closeInstance() {
             synchronized(this) {
                 INSTANCE?.close()
@@ -351,7 +362,7 @@ abstract class AppDatabase : RoomDatabase() {
                         AppDatabase::class.java,
                         "bancal_database"
                     )
-                        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                        .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16)
                         .addCallback(object : Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {
                                 super.onCreate(db)

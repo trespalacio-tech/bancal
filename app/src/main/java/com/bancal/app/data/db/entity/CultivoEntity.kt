@@ -31,5 +31,6 @@ data class CultivoEntity(
     val admiteSiembraDirecta: Boolean = false,
     val admitePlantel: Boolean = true,
     val esPersonalizado: Boolean = false,
+    val necesitaTutor: Boolean = false,
     val notas: String = ""
 )

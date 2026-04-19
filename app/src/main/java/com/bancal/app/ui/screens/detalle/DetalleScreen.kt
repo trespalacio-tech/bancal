@@ -204,6 +204,7 @@ fun DetalleScreen(
                                 CultivoInfoRow("Familia", c.familia.name.lowercase().replaceFirstChar { it.uppercase() })
                                 CultivoInfoRow("Marco", "${c.marcoCm} cm")
                                 CultivoInfoRow("Riego", c.riego.name.lowercase().replaceFirstChar { it.uppercase() })
+                                CultivoInfoRow("Tutor", if (c.necesitaTutor) "Sí" else "No")
                                 CultivoInfoRow("Temp. mínima", "${c.temperaturaMinima}°C")
                                 CultivoInfoRow("Temp. óptima", "${c.temperaturaOptima}°C")
                                 if (c.notas.isNotBlank()) {

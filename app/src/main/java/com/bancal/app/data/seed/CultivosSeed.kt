@@ -36,7 +36,7 @@ object CultivosSeed {
             mesesTrasplante = meses(5, 6),
             profundidadSiembraCm = 0.5f, riego = ALTO, categoria = VEGETAL,
             lineasPorBancal = 1, semanasCosechando = 10, exigencia = MUY_EXIGENTE,
-            admiteSiembraDirecta = false, admitePlantel = true,
+            admiteSiembraDirecta = false, admitePlantel = true, necesitaTutor = true,
             notas = "Tomate tradicional. Necesita tutor. Despuntar a partir del 4º racimo."
         ),
         CultivoEntity(
@@ -48,7 +48,7 @@ object CultivosSeed {
             mesesTrasplante = meses(5, 6),
             profundidadSiembraCm = 0.5f, riego = ALTO, categoria = VEGETAL,
             lineasPorBancal = 1, semanasCosechando = 10, exigencia = MUY_EXIGENTE,
-            admiteSiembraDirecta = false, admitePlantel = true,
+            admiteSiembraDirecta = false, admitePlantel = true, necesitaTutor = true,
             notas = "Muy productivo. Necesita tutor alto o jaula."
         ),
         CultivoEntity(
@@ -60,7 +60,7 @@ object CultivosSeed {
             mesesTrasplante = meses(5, 6),
             profundidadSiembraCm = 0.5f, riego = ALTO, categoria = VEGETAL,
             lineasPorBancal = 1, semanasCosechando = 10, exigencia = MUY_EXIGENTE,
-            admiteSiembraDirecta = false, admitePlantel = true,
+            admiteSiembraDirecta = false, admitePlantel = true, necesitaTutor = true,
             notas = "Híbrido. Mayor producción pero no guarda semillas."
         ),
         CultivoEntity(
@@ -72,7 +72,7 @@ object CultivosSeed {
             mesesTrasplante = meses(5, 6),
             profundidadSiembraCm = 0.5f, riego = ALTO, categoria = VEGETAL,
             lineasPorBancal = 1, semanasCosechando = 8, exigencia = MUY_EXIGENTE,
-            admiteSiembraDirecta = false, admitePlantel = true,
+            admiteSiembraDirecta = false, admitePlantel = true, necesitaTutor = true,
             notas = "No necesita despunte. Cosecha concentrada."
         ),
         CultivoEntity(
@@ -208,7 +208,7 @@ object CultivosSeed {
             mesesTrasplante = meses(5, 6),
             profundidadSiembraCm = 2f, riego = ALTO, categoria = VEGETAL,
             lineasPorBancal = 2, semanasCosechando = 4, exigencia = MUY_EXIGENTE,
-            admiteSiembraDirecta = false, admitePlantel = true,
+            admiteSiembraDirecta = false, admitePlantel = true, necesitaTutor = true,
             notas = "Necesita tutor o enrejado. Cosechar frecuentemente."
         ),
         CultivoEntity(
@@ -260,7 +260,7 @@ object CultivosSeed {
             mesesTrasplante = meses(5, 6, 7),
             profundidadSiembraCm = 3f, riego = MEDIO, categoria = CALORICO,
             lineasPorBancal = 2, semanasCosechando = 6, exigencia = NADA_EXIGENTE,
-            admiteSiembraDirecta = true, admitePlantel = true,
+            admiteSiembraDirecta = true, admitePlantel = true, necesitaTutor = true,
             notas = "Necesita tutor alto. Fija nitrógeno. Muy productiva."
         ),
         CultivoEntity(
@@ -272,7 +272,7 @@ object CultivosSeed {
             mesesTrasplante = meses(2, 3, 10, 11),
             profundidadSiembraCm = 3f, riego = BAJO, categoria = CALORICO, intervaloSucesionDias = 21,
             lineasPorBancal = 2, semanasCosechando = 2, exigencia = NADA_EXIGENTE,
-            admiteSiembraDirecta = true, admitePlantel = true,
+            admiteSiembraDirecta = true, admitePlantel = true, necesitaTutor = true,
             notas = "Tolera heladas suaves. Siembra otoñal posible en Burgos con protección."
         ),
         CultivoEntity(
