@@ -16,8 +16,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextMeasurer
@@ -30,6 +32,10 @@ import com.bancal.app.data.db.entity.CultivoEntity
 import com.bancal.app.data.db.entity.PlantacionEntity
 import com.bancal.app.domain.model.EstadoPlantacion
 import com.bancal.app.ui.theme.*
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 data class PlantacionVisual(
     val plantacion: PlantacionEntity,
@@ -46,7 +52,8 @@ fun BancalCanvas(
     previewPosXCm: Int? = null,
     previewAnchoCm: Int = 0,
     previewEmoji: String = "",
-    previewOcupado: Boolean = false
+    previewOcupado: Boolean = false,
+    hoy: LocalDate = LocalDate.now()
 ) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -62,6 +69,7 @@ fun BancalCanvas(
     val surfaceColor = MaterialTheme.colorScheme.surfaceVariant
     val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
     val textColor = MaterialTheme.colorScheme.onSurface
+    val textMuted = MaterialTheme.colorScheme.onSurfaceVariant
     val errorColor = MaterialTheme.colorScheme.error
     val primaryColor = MaterialTheme.colorScheme.primary
 
@@ -73,11 +81,24 @@ fun BancalCanvas(
         EstadoPlantacion.RETIRADO to EstadoRetirado
     )
 
-    // Agrupar: hijas -> su madre; madres con hijas; libres (sin hijas y sin madre)
+    // Agrupar: hijas -> su madre; madres con hijas
     val hijasPorMadreId = plantaciones
         .filter { it.plantacion.intercaladaCon != null }
         .groupBy { it.plantacion.intercaladaCon!! }
     val idsMadres = hijasPorMadreId.keys
+
+    // Calcular huecos libres (zonas sin plantación que ocupe la banda principal)
+    val ocupadoresDeBanda = plantaciones.filter { it.plantacion.intercaladaCon == null }
+        .sortedBy { it.plantacion.posicionXCm }
+    val huecosLibres = buildList {
+        var cursor = 0
+        for (pv in ocupadoresDeBanda) {
+            val p = pv.plantacion
+            if (p.posicionXCm > cursor) add(cursor to p.posicionXCm)
+            cursor = maxOf(cursor, p.posicionXCm + p.anchoCm)
+        }
+        if (cursor < bancalLargoCm) add(cursor to bancalLargoCm)
+    }
 
     Box(
         modifier = modifier
@@ -98,8 +119,6 @@ fun BancalCanvas(
                             enX.isEmpty() -> null
                             enX.size == 1 -> enX.first()
                             else -> {
-                                // Varias plantaciones en el mismo X: distinguir por banda.
-                                // Banda superior (y < H/2) = madre/libre; inferior = hija.
                                 val topHalf = offset.y < size.height / 2f
                                 val noHija = enX.firstOrNull { it.plantacion.intercaladaCon == null }
                                 val hija = enX.firstOrNull { it.plantacion.intercaladaCon != null }
@@ -124,45 +143,67 @@ fun BancalCanvas(
                 cornerRadius = CornerRadius(10f, 10f)
             )
 
-            // Borde sutil del bancal
+            // Regla adaptativa: ticks menores cada 50cm, mayores cada 1m con label
+            drawRegla(
+                bancalLargoCm = bancalLargoCm,
+                pxPerCm = pxPerCm,
+                textMeasurer = textMeasurer,
+                borderColor = borderColor,
+                surfaceColor = surfaceColor,
+                textColor = textColor
+            )
+
+            // Huecos libres: label "X cm libre" si hueco ≥ 50cm
+            for ((startCm, finCm) in huecosLibres) {
+                val anchoHueco = finCm - startCm
+                if (anchoHueco < 50) continue
+                val centroX = ((startCm + finCm) / 2f) * pxPerCm
+                val label = "$anchoHueco cm libre"
+                val labelStyle = TextStyle(
+                    color = textMuted.copy(alpha = 0.7f),
+                    fontSize = 10.sp
+                )
+                val layout = textMeasurer.measure(label, labelStyle)
+                val padX = 6f
+                val padY = 3f
+                val boxW = layout.size.width + padX * 2
+                val boxH = layout.size.height + padY * 2
+                // Solo si el label cabe en el hueco con margen
+                if (boxW < anchoHueco * pxPerCm - 12f) {
+                    val boxX = centroX - boxW / 2
+                    val boxY = (size.height - boxH) / 2
+                    drawRoundRect(
+                        color = surfaceColor.copy(alpha = 0.85f),
+                        topLeft = Offset(boxX, boxY),
+                        size = Size(boxW, boxH),
+                        cornerRadius = CornerRadius(8f, 8f)
+                    )
+                    drawRoundRect(
+                        color = borderColor.copy(alpha = 0.5f),
+                        topLeft = Offset(boxX, boxY),
+                        size = Size(boxW, boxH),
+                        cornerRadius = CornerRadius(8f, 8f),
+                        style = Stroke(width = 0.8f)
+                    )
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = label,
+                        topLeft = Offset(boxX + padX, boxY + padY),
+                        style = labelStyle
+                    )
+                }
+            }
+
+            // Borde sutil del bancal (por encima de regla y huecos)
             drawRoundRect(
                 color = borderColor,
                 topLeft = Offset.Zero,
                 size = Size(size.width, size.height),
                 cornerRadius = CornerRadius(10f, 10f),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f)
+                style = Stroke(width = 1f)
             )
 
-            // Marcas cada metro
-            for (metro in 1 until bancalLargoCm / 100) {
-                val x = metro * 100 * pxPerCm
-                drawLine(borderColor, Offset(x, 0f), Offset(x, 6f), strokeWidth = 1f)
-                drawLine(borderColor, Offset(x, size.height - 6f), Offset(x, size.height), strokeWidth = 1f)
-                drawLine(borderColor.copy(alpha = 0.25f), Offset(x, 8f), Offset(x, size.height - 8f), strokeWidth = 0.5f)
-                val label = "${metro}m"
-                val labelStyle = TextStyle(color = textColor.copy(alpha = 0.55f), fontSize = 9.sp)
-                val labelLayout = textMeasurer.measure(label, labelStyle)
-                val labelPad = 4f
-                drawRoundRect(
-                    color = surfaceColor.copy(alpha = 0.9f),
-                    topLeft = Offset(x + 3f, 2f),
-                    size = Size(
-                        labelLayout.size.width + labelPad * 2,
-                        labelLayout.size.height + 2f
-                    ),
-                    cornerRadius = CornerRadius(6f, 6f)
-                )
-                drawText(
-                    textMeasurer = textMeasurer,
-                    text = label,
-                    topLeft = Offset(x + 3f + labelPad, 2f),
-                    style = labelStyle
-                )
-            }
-
-            // 1. Libres (sin hijas) → altura completa
-            // 2. Madres con hijas → banda superior
-            // 3. Hijas → banda inferior (cada una en su rango X)
+            // Plantaciones por banda
             for (pv in plantaciones) {
                 val p = pv.plantacion
                 val esHija = p.intercaladaCon != null
@@ -172,7 +213,16 @@ fun BancalCanvas(
                     esMadre -> Banda.SUPERIOR
                     else -> Banda.COMPLETA
                 }
-                drawPlantacionEnBanda(pv, banda, pxPerCm, textMeasurer, textColor, estadoColors)
+                drawPlantacionEnBanda(
+                    pv = pv,
+                    banda = banda,
+                    pxPerCm = pxPerCm,
+                    textMeasurer = textMeasurer,
+                    textColor = textColor,
+                    estadoColors = estadoColors,
+                    hoy = hoy,
+                    surfaceColor = surfaceColor
+                )
             }
 
             // Preview fantasma de nueva plantación
@@ -188,13 +238,76 @@ fun BancalCanvas(
 
 private enum class Banda { COMPLETA, SUPERIOR, INFERIOR }
 
+private fun DrawScope.drawRegla(
+    bancalLargoCm: Int,
+    pxPerCm: Float,
+    textMeasurer: TextMeasurer,
+    borderColor: Color,
+    surfaceColor: Color,
+    textColor: Color
+) {
+    // Ticks menores cada 50cm (sin label)
+    val totalHalfMetros = bancalLargoCm / 50
+    for (i in 1..totalHalfMetros) {
+        val cm = i * 50
+        if (cm % 100 == 0) continue // lo dibuja el tick mayor
+        val x = cm * pxPerCm
+        drawLine(
+            color = borderColor.copy(alpha = 0.6f),
+            start = Offset(x, 0f),
+            end = Offset(x, 3f),
+            strokeWidth = 0.8f
+        )
+        drawLine(
+            color = borderColor.copy(alpha = 0.6f),
+            start = Offset(x, size.height - 3f),
+            end = Offset(x, size.height),
+            strokeWidth = 0.8f
+        )
+    }
+
+    // Ticks mayores cada 1m + grid vertical tenue + label
+    for (metro in 1 until bancalLargoCm / 100) {
+        val x = metro * 100 * pxPerCm
+        drawLine(borderColor, Offset(x, 0f), Offset(x, 6f), strokeWidth = 1f)
+        drawLine(borderColor, Offset(x, size.height - 6f), Offset(x, size.height), strokeWidth = 1f)
+        drawLine(
+            borderColor.copy(alpha = 0.18f),
+            Offset(x, 8f),
+            Offset(x, size.height - 8f),
+            strokeWidth = 0.5f
+        )
+        val label = "${metro}m"
+        val labelStyle = TextStyle(color = textColor.copy(alpha = 0.55f), fontSize = 9.sp)
+        val labelLayout = textMeasurer.measure(label, labelStyle)
+        val labelPad = 4f
+        drawRoundRect(
+            color = surfaceColor.copy(alpha = 0.9f),
+            topLeft = Offset(x + 3f, 2f),
+            size = Size(
+                labelLayout.size.width + labelPad * 2,
+                labelLayout.size.height + 2f
+            ),
+            cornerRadius = CornerRadius(6f, 6f)
+        )
+        drawText(
+            textMeasurer = textMeasurer,
+            text = label,
+            topLeft = Offset(x + 3f + labelPad, 2f),
+            style = labelStyle
+        )
+    }
+}
+
 private fun DrawScope.drawPlantacionEnBanda(
     pv: PlantacionVisual,
     banda: Banda,
     pxPerCm: Float,
     textMeasurer: TextMeasurer,
     textColor: Color,
-    estadoColors: Map<EstadoPlantacion, Color>
+    estadoColors: Map<EstadoPlantacion, Color>,
+    hoy: LocalDate,
+    surfaceColor: Color
 ) {
     val p = pv.plantacion
     val c = pv.cultivo
@@ -233,10 +346,10 @@ private fun DrawScope.drawPlantacionEnBanda(
         topLeft = Offset(x + 2f, topY),
         size = Size(w - 4f, h),
         cornerRadius = CornerRadius(cornerR, cornerR),
-        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
+        style = Stroke(width = 1.5f)
     )
 
-    // Puntitos: uno por planta real (slotsX × líneas)
+    // Puntitos: uno por planta real
     val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
     drawPlantasDots(
         rectX = x + 2f,
@@ -248,7 +361,7 @@ private fun DrawScope.drawPlantacionEnBanda(
         color = color
     )
 
-    // Emoji centrado
+    // Texto (emoji + opcional nombre/días)
     if (w > 30f) {
         val emojiSize = when (banda) {
             Banda.COMPLETA -> 20.sp
@@ -267,7 +380,7 @@ private fun DrawScope.drawPlantacionEnBanda(
             style = emojiStyle
         )
 
-        // Nombre debajo del emoji solo en banda completa
+        // En banda completa y si hay espacio: nombre y días a cosecha
         if (banda == Banda.COMPLETA) {
             val nameStyle = TextStyle(color = textColor, fontSize = 9.sp)
             val nameLayout = textMeasurer.measure(c.nombre, nameStyle)
@@ -277,13 +390,148 @@ private fun DrawScope.drawPlantacionEnBanda(
                     text = c.nombre,
                     topLeft = Offset(
                         x + (w - nameLayout.size.width) / 2,
-                        topY + h * 0.6f
+                        topY + h * 0.58f
                     ),
                     style = nameStyle
                 )
             }
         }
     }
+
+    // Progreso hacia cosecha: barra en la base de la plantación
+    drawProgresoBase(
+        x = x + 2f,
+        rectY = topY,
+        rectW = w - 4f,
+        rectH = h,
+        cornerR = cornerR,
+        plantacion = p,
+        hoy = hoy,
+        color = color
+    )
+
+    // Badge de cosecha inminente (≤ 7 días) en la esquina superior derecha
+    val diasACosecha = calcularDiasACosecha(p, hoy)
+    if (diasACosecha in 0..7 && p.estado != EstadoPlantacion.RETIRADO) {
+        drawBadgeCosecha(
+            rightX = x + w - 4f,
+            topY = topY + 2f,
+            textMeasurer = textMeasurer,
+            surfaceColor = surfaceColor
+        )
+    }
+
+    // Indicador de enlace madre↔hija en la cabecera de la banda inferior (hija)
+    if (banda == Banda.INFERIOR) {
+        drawLinkIndicator(
+            centerX = x + w / 2f,
+            y = topY - splitGap / 2f,
+            textMeasurer = textMeasurer,
+            surfaceColor = surfaceColor
+        )
+    }
+}
+
+private fun DrawScope.drawProgresoBase(
+    x: Float,
+    rectY: Float,
+    rectW: Float,
+    rectH: Float,
+    cornerR: Float,
+    plantacion: PlantacionEntity,
+    hoy: LocalDate,
+    color: Color
+) {
+    if (plantacion.estado == EstadoPlantacion.RETIRADO) return
+    val zone = ZoneId.of("Europe/Madrid")
+    val fechaSiembra = Instant.ofEpochMilli(plantacion.fechaSiembra).atZone(zone).toLocalDate()
+    val fechaCos = Instant.ofEpochMilli(plantacion.fechaCosechaEstimada).atZone(zone).toLocalDate()
+    val totalDias = ChronoUnit.DAYS.between(fechaSiembra, fechaCos).toInt().coerceAtLeast(1)
+    val diasTranscurridos = ChronoUnit.DAYS.between(fechaSiembra, hoy).toInt().coerceAtLeast(0)
+    val progreso = (diasTranscurridos.toFloat() / totalDias).coerceIn(0f, 1f)
+
+    val barH = 3f
+    val barY = rectY + rectH - barH - 1.5f
+    // Track
+    drawRoundRect(
+        color = color.copy(alpha = 0.18f),
+        topLeft = Offset(x + 2f, barY),
+        size = Size(rectW - 4f, barH),
+        cornerRadius = CornerRadius(cornerR / 2, cornerR / 2)
+    )
+    // Fill
+    val fillW = (rectW - 4f) * progreso
+    if (fillW > 0f) {
+        drawRoundRect(
+            color = color.copy(alpha = 0.85f),
+            topLeft = Offset(x + 2f, barY),
+            size = Size(fillW, barH),
+            cornerRadius = CornerRadius(cornerR / 2, cornerR / 2)
+        )
+    }
+}
+
+private fun DrawScope.drawBadgeCosecha(
+    rightX: Float,
+    topY: Float,
+    textMeasurer: TextMeasurer,
+    surfaceColor: Color
+) {
+    val emoji = "\uD83E\uDDFA" // 🧺
+    val style = TextStyle(fontSize = 11.sp)
+    val layout = textMeasurer.measure(emoji, style)
+    val pad = 2f
+    val boxW = layout.size.width + pad * 2
+    val boxH = layout.size.height + pad
+    val boxX = rightX - boxW - 2f
+    val boxY = topY
+    // Pastilla clara para que destaque sobre cualquier color de estado
+    drawRoundRect(
+        color = surfaceColor.copy(alpha = 0.95f),
+        topLeft = Offset(boxX, boxY),
+        size = Size(boxW, boxH),
+        cornerRadius = CornerRadius(6f, 6f)
+    )
+    drawText(
+        textMeasurer = textMeasurer,
+        text = emoji,
+        topLeft = Offset(boxX + pad, boxY),
+        style = style
+    )
+}
+
+private fun DrawScope.drawLinkIndicator(
+    centerX: Float,
+    y: Float,
+    textMeasurer: TextMeasurer,
+    surfaceColor: Color
+) {
+    val emoji = "\uD83D\uDD17" // 🔗
+    val style = TextStyle(fontSize = 8.sp)
+    val layout = textMeasurer.measure(emoji, style)
+    val pad = 1.5f
+    val boxW = layout.size.width + pad * 2
+    val boxH = layout.size.height + pad
+    val boxX = centerX - boxW / 2f
+    val boxY = y - boxH / 2f
+    drawRoundRect(
+        color = surfaceColor.copy(alpha = 0.95f),
+        topLeft = Offset(boxX, boxY),
+        size = Size(boxW, boxH),
+        cornerRadius = CornerRadius(4f, 4f)
+    )
+    drawText(
+        textMeasurer = textMeasurer,
+        text = emoji,
+        topLeft = Offset(boxX + pad, boxY),
+        style = style
+    )
+}
+
+private fun calcularDiasACosecha(p: PlantacionEntity, hoy: LocalDate): Int {
+    val zone = ZoneId.of("Europe/Madrid")
+    val fechaCos = Instant.ofEpochMilli(p.fechaCosechaEstimada).atZone(zone).toLocalDate()
+    return ChronoUnit.DAYS.between(hoy, fechaCos).toInt()
 }
 
 private fun DrawScope.drawPlantasDots(
@@ -297,7 +545,9 @@ private fun DrawScope.drawPlantasDots(
 ) {
     if (slotsX <= 0 || lineas <= 0 || rectW <= 6f || rectH <= 6f) return
     val cellW = rectW / slotsX
-    val cellH = rectH / lineas
+    // Reservar espacio inferior para la barra de progreso (no pisarla con los puntos)
+    val usableH = (rectH - 6f).coerceAtLeast(rectH * 0.7f)
+    val cellH = usableH / lineas
     val radius = (minOf(cellW, cellH) / 4f).coerceIn(1.5f, 4.5f)
     val dotColor = color.copy(alpha = 0.95f)
     for (col in 0 until slotsX) {
@@ -337,12 +587,16 @@ private fun DrawScope.drawPreview(
         style = Fill
     )
 
+    // Borde punteado para distinguir del resto
     drawRoundRect(
-        color = color.copy(alpha = 0.75f),
+        color = color.copy(alpha = 0.8f),
         topLeft = Offset(x + 2f, padding),
         size = Size(w - 4f, h),
         cornerRadius = CornerRadius(8f, 8f),
-        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f)
+        style = Stroke(
+            width = 2f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 6f))
+        )
     )
 
     if (w > 30f && emoji.isNotEmpty()) {
