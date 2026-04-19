@@ -349,38 +349,31 @@ private fun DrawScope.drawPlantacionEnBanda(
         style = Stroke(width = 1.5f)
     )
 
-    // Puntitos: uno por planta real
-    val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
-    drawPlantasDots(
-        rectX = x + 2f,
-        rectY = topY,
-        rectW = w - 4f,
-        rectH = h,
-        slotsX = slotsX,
-        lineas = c.lineasPorBancal.coerceAtLeast(1),
-        color = color
-    )
-
-    // Texto (emoji + opcional nombre/días)
+    // Texto (emoji + número de plantas + opcional nombre)
     if (w > 30f) {
+        val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
+        val totalPlantas = slotsX * c.lineasPorBancal.coerceAtLeast(1)
         val emojiSize = when (banda) {
             Banda.COMPLETA -> 20.sp
             else -> 16.sp
         }
         val emojiStyle = TextStyle(fontSize = emojiSize)
-        val emojiLayout = textMeasurer.measure(c.icono, emojiStyle)
+        val etiqueta = if (totalPlantas > 1) "${c.icono} ×$totalPlantas" else c.icono
+        val etiquetaLayout = textMeasurer.measure(etiqueta, emojiStyle)
+        val finalEtiqueta = if (etiquetaLayout.size.width < w - 8f) etiqueta else c.icono
+        val finalLayout = textMeasurer.measure(finalEtiqueta, emojiStyle)
         val emojiY = when (banda) {
-            Banda.COMPLETA -> topY + (h - emojiLayout.size.height) / 3
-            else -> topY + (h - emojiLayout.size.height) / 2
+            Banda.COMPLETA -> topY + (h - finalLayout.size.height) / 3
+            else -> topY + (h - finalLayout.size.height) / 2
         }
         drawText(
             textMeasurer = textMeasurer,
-            text = c.icono,
-            topLeft = Offset(x + (w - emojiLayout.size.width) / 2, emojiY),
+            text = finalEtiqueta,
+            topLeft = Offset(x + (w - finalLayout.size.width) / 2, emojiY),
             style = emojiStyle
         )
 
-        // En banda completa y si hay espacio: nombre y días a cosecha
+        // En banda completa y si hay espacio: nombre del cultivo debajo
         if (banda == Banda.COMPLETA) {
             val nameStyle = TextStyle(color = textColor, fontSize = 9.sp)
             val nameLayout = textMeasurer.measure(c.nombre, nameStyle)
@@ -532,31 +525,6 @@ private fun calcularDiasACosecha(p: PlantacionEntity, hoy: LocalDate): Int {
     val zone = ZoneId.of("Europe/Madrid")
     val fechaCos = Instant.ofEpochMilli(p.fechaCosechaEstimada).atZone(zone).toLocalDate()
     return ChronoUnit.DAYS.between(hoy, fechaCos).toInt()
-}
-
-private fun DrawScope.drawPlantasDots(
-    rectX: Float,
-    rectY: Float,
-    rectW: Float,
-    rectH: Float,
-    slotsX: Int,
-    lineas: Int,
-    color: Color
-) {
-    if (slotsX <= 0 || lineas <= 0 || rectW <= 6f || rectH <= 6f) return
-    val cellW = rectW / slotsX
-    // Reservar espacio inferior para la barra de progreso (no pisarla con los puntos)
-    val usableH = (rectH - 6f).coerceAtLeast(rectH * 0.7f)
-    val cellH = usableH / lineas
-    val radius = (minOf(cellW, cellH) / 4f).coerceIn(1.5f, 4.5f)
-    val dotColor = color.copy(alpha = 0.95f)
-    for (col in 0 until slotsX) {
-        for (row in 0 until lineas) {
-            val cx = rectX + cellW * (col + 0.5f)
-            val cy = rectY + cellH * (row + 0.5f)
-            drawCircle(color = dotColor, radius = radius, center = Offset(cx, cy))
-        }
-    }
 }
 
 private fun DrawScope.drawPreview(
