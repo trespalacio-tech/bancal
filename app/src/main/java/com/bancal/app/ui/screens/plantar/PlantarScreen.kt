@@ -48,6 +48,8 @@ fun PlantarScreen(
     val zonaOcupada by viewModel.zonaOcupada.collectAsState()
     val intercalaciones by viewModel.intercalaciones.collectAsState()
     val intercalarCon by viewModel.intercalarCon.collectAsState()
+    val solapaHermana by viewModel.solapaHermana.collectAsState()
+    val calidadIntercalado by viewModel.calidadIntercalado.collectAsState()
     val avisoRotacion by viewModel.avisoRotacion.collectAsState()
     val plantado by viewModel.plantado.collectAsState()
     val plantacionesVisuales by viewModel.plantacionesVisuales.collectAsState()
@@ -349,7 +351,8 @@ fun PlantarScreen(
                         previewPosXCm = posicionX,
                         previewAnchoCm = totalAncho,
                         previewEmoji = cultivo.icono,
-                        previewOcupado = zonaOcupada && intercalarCon == null
+                        previewOcupado = (intercalarCon == null && zonaOcupada) ||
+                            (intercalarCon != null && solapaHermana)
                     )
 
                     Spacer(Modifier.height(8.dp))
@@ -386,14 +389,21 @@ fun PlantarScreen(
                         }
                     }
 
-                    if (zonaOcupada && intercalaciones.isEmpty()) {
+                    if (intercalarCon != null && solapaHermana) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "❌ Esta zona pisa a otra planta intercalada",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = ErrorLight
+                        )
+                    } else if (zonaOcupada && intercalarCon == null && intercalaciones.isEmpty()) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "❌ Esta zona ya esta ocupada",
                             style = MaterialTheme.typography.bodySmall,
                             color = ErrorLight
                         )
-                    } else if (zonaOcupada && intercalaciones.isNotEmpty()) {
+                    } else if (zonaOcupada && intercalarCon == null && intercalaciones.isNotEmpty()) {
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "Zona ocupada — puedes intercalar (ver abajo)",
@@ -522,6 +532,38 @@ fun PlantarScreen(
                             }
                         }
                     }
+                    // Info de calidad agronómica cuando hay madre seleccionada
+                    calidadIntercalado?.let { eval ->
+                        item {
+                            val (emoji, color) = when (eval.calidad) {
+                                com.bancal.app.domain.logic.AsociacionEngine.CalidadIntercalado.IDEAL ->
+                                    "✅" to SuccessGreen
+                                com.bancal.app.domain.logic.AsociacionEngine.CalidadIntercalado.MAL_EMPAREJADO ->
+                                    "⚠\uFE0F" to WarningAmber
+                                com.bancal.app.domain.logic.AsociacionEngine.CalidadIntercalado.ACEPTABLE ->
+                                    "\uD83D\uDCA1" to MaterialTheme.colorScheme.primary
+                            }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = color.copy(alpha = 0.1f)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(emoji)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        eval.mensaje,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = color
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // === AVISO DE ROTACIÓN ===
@@ -559,7 +601,7 @@ fun PlantarScreen(
                 item {
                     Spacer(Modifier.height(8.dp))
                     val puedeIntercalar = intercalarCon != null
-                    val puedePlantar = !zonaOcupada || puedeIntercalar
+                    val puedePlantar = if (puedeIntercalar) !solapaHermana else !zonaOcupada
                     Button(
                         onClick = { viewModel.plantar() },
                         modifier = Modifier.fillMaxWidth(),

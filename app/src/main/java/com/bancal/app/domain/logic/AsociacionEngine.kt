@@ -105,7 +105,7 @@ class AsociacionEngine(private val repository: BancalRepository) {
 
     /**
      * Devuelve las plantaciones en una zona con las que se podría intercalar un cultivo dado,
-     * basándose en asociaciones explícitas de la BD.
+     * basándose en asociaciones explícitas de la BD. Una madre admite varias hijas.
      */
     suspend fun getIntercalablesEn(
         cultivoId: Long,
@@ -115,15 +115,13 @@ class AsociacionEngine(private val repository: BancalRepository) {
     ): List<PlantacionEntity> {
         val plantaciones = repository.getPlantacionesEnRango(posicionXCm, posicionXCm + anchoCm, bancalId)
         return plantaciones.filter { p ->
-            p.intercaladaCon == null &&
-                !repository.tieneIntercalado(p.id) &&
-                esIntercalable(cultivoId, p.cultivoId)
+            p.intercaladaCon == null && esIntercalable(cultivoId, p.cultivoId)
         }
     }
 
     /**
-     * Devuelve cualquier plantación libre en la zona con la que se podría intercalar.
-     * No requiere asociación definida: intercalado libre.
+     * Devuelve cualquier plantación libre (no hija) en la zona con la que se podría intercalar.
+     * No requiere asociación definida: intercalado libre. Una madre puede acoger varias hijas.
      */
     suspend fun getPosiblesMadresEn(
         posicionXCm: Int,
@@ -131,8 +129,81 @@ class AsociacionEngine(private val repository: BancalRepository) {
         bancalId: Long = 1
     ): List<PlantacionEntity> {
         val plantaciones = repository.getPlantacionesEnRango(posicionXCm, posicionXCm + anchoCm, bancalId)
-        return plantaciones.filter { p ->
-            p.intercaladaCon == null && !repository.tieneIntercalado(p.id)
+        return plantaciones.filter { p -> p.intercaladaCon == null }
+    }
+
+    data class Hueco(val startCm: Int, val anchoCm: Int)
+
+    /**
+     * Calcula los huecos libres dentro de una madre, descontando los rangos ocupados
+     * por sus hijas ya existentes (ordenados por posición).
+     */
+    suspend fun getHuecosEnMadre(madre: PlantacionEntity): List<Hueco> {
+        val hermanas = repository.getIntercalados(madre.id).sortedBy { it.posicionXCm }
+        val fin = madre.posicionXCm + madre.anchoCm
+        val huecos = mutableListOf<Hueco>()
+        var cursor = madre.posicionXCm
+        for (h in hermanas) {
+            if (h.posicionXCm > cursor) huecos.add(Hueco(cursor, h.posicionXCm - cursor))
+            cursor = maxOf(cursor, h.posicionXCm + h.anchoCm)
+        }
+        if (cursor < fin) huecos.add(Hueco(cursor, fin - cursor))
+        return huecos
+    }
+
+    /**
+     * ¿El rango [posX, posX+ancho) solapa con alguna hija existente de `madre`?
+     * `excluirId`: id de hija a ignorar (útil al editar).
+     */
+    suspend fun solapaConHermanas(
+        madre: PlantacionEntity,
+        posX: Int,
+        ancho: Int,
+        excluirId: Long? = null
+    ): Boolean {
+        val finX = posX + ancho
+        val hermanas = repository.getIntercalados(madre.id).filter { it.id != excluirId }
+        return hermanas.any { h ->
+            val hFin = h.posicionXCm + h.anchoCm
+            posX < hFin && finX > h.posicionXCm
+        }
+    }
+
+    enum class CalidadIntercalado { IDEAL, ACEPTABLE, MAL_EMPAREJADO }
+
+    data class EvaluacionIntercalado(
+        val calidad: CalidadIntercalado,
+        val mensaje: String
+    )
+
+    /**
+     * Evalúa agronómicamente el intercalado entre dos cultivos.
+     * Regla (§6.1 doc regenerativa): ideal = ciclo corto + ciclo largo plantados a la vez.
+     * Ambos de ciclo largo compiten demasiado por nutrientes.
+     */
+    fun evaluarIntercalado(hija: CultivoEntity, madre: CultivoEntity): EvaluacionIntercalado {
+        val cortoMax = 80   // ≤ ~11 semanas
+        val largoMin = 110  // ≥ ~16 semanas
+        val esCorto = { d: Int -> d <= cortoMax }
+        val esLargo = { d: Int -> d >= largoMin }
+        val dH = hija.diasCosecha
+        val dM = madre.diasCosecha
+        return when {
+            (esCorto(dH) && esLargo(dM)) || (esLargo(dH) && esCorto(dM)) ->
+                EvaluacionIntercalado(
+                    CalidadIntercalado.IDEAL,
+                    "Ciclo corto + largo: intercalado ideal."
+                )
+            esLargo(dH) && esLargo(dM) ->
+                EvaluacionIntercalado(
+                    CalidadIntercalado.MAL_EMPAREJADO,
+                    "Ambos son ciclo largo: competirán por nutrientes. Prefiere uno corto + uno largo."
+                )
+            else ->
+                EvaluacionIntercalado(
+                    CalidadIntercalado.ACEPTABLE,
+                    "Intercalado aceptable. El ideal sería combinar ciclo corto con ciclo largo."
+                )
         }
     }
 

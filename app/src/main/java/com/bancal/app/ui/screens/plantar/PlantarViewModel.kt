@@ -94,6 +94,14 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
     private val _intercalarCon = MutableStateFlow<PlantacionEntity?>(null)
     val intercalarCon: StateFlow<PlantacionEntity?> = _intercalarCon
 
+    // --- Solapamiento con hermanas (al intercalar, si pisa a otra hija) ---
+    private val _solapaHermana = MutableStateFlow(false)
+    val solapaHermana: StateFlow<Boolean> = _solapaHermana
+
+    // --- Calidad agronómica del intercalado seleccionado ---
+    private val _calidadIntercalado = MutableStateFlow<AsociacionEngine.EvaluacionIntercalado?>(null)
+    val calidadIntercalado: StateFlow<AsociacionEngine.EvaluacionIntercalado?> = _calidadIntercalado
+
     // --- Aviso de rotación ---
     data class AvisoRotacion(val cultivoPrevio: String, val mensaje: String)
     private val _avisoRotacion = MutableStateFlow<AvisoRotacion?>(null)
@@ -120,14 +128,19 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
 
     // --- Cantidad máxima que cabe en el hueco (o dentro de la madre si se está intercalando) ---
     val cantidadMaxima: StateFlow<Int> = combine(
-        _selectedCultivo, _posicionX, huecos, _intercalarCon
-    ) { cultivo, posX, listaHuecos, madre ->
+        _selectedCultivo, _posicionX, huecos, _intercalarCon, plantacionesVisuales
+    ) { cultivo, posX, listaHuecos, madre, visuales ->
         if (cultivo == null) return@combine 1
         val marco = cultivo.marcoCm
         if (marco <= 0) return@combine 1
         if (madre != null) {
-            val fin = madre.posicionXCm + madre.anchoCm
-            val espacioDesde = fin - posX
+            // Espacio hasta la próxima hermana a la derecha (o fin de la madre)
+            val finMadre = madre.posicionXCm + madre.anchoCm
+            val proxHermanaInicio = visuales.map { it.plantacion }
+                .filter { it.intercaladaCon == madre.id && it.posicionXCm > posX }
+                .minOfOrNull { it.posicionXCm }
+                ?: finMadre
+            val espacioDesde = proxHermanaInicio - posX
             (espacioDesde / marco).coerceAtLeast(1)
         } else {
             val hueco = listaHuecos.find { posX >= it.startCm && posX < it.startCm + it.anchoCm }
@@ -158,6 +171,8 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
         _zonaOcupada.value = false
         _intercalaciones.value = emptyList()
         _intercalarCon.value = null
+        _solapaHermana.value = false
+        _calidadIntercalado.value = null
         _avisoRotacion.value = null
         _cantidad.value = 1
     }
@@ -187,7 +202,14 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
 
     fun updatePosicion(posXCm: Int) {
         val ancho = totalAnchoCm.value
-        _posicionX.value = posXCm.coerceIn(0, (bancalLargoCm - ancho).coerceAtLeast(0))
+        val madre = _intercalarCon.value
+        _posicionX.value = if (madre != null) {
+            val minX = madre.posicionXCm
+            val maxX = (madre.posicionXCm + madre.anchoCm - ancho).coerceAtLeast(minX)
+            posXCm.coerceIn(minX, maxX)
+        } else {
+            posXCm.coerceIn(0, (bancalLargoCm - ancho).coerceAtLeast(0))
+        }
         val max = cantidadMaxima.value
         if (_cantidad.value > max) _cantidad.value = max.coerceAtLeast(1)
         evaluarPosicion()
@@ -228,11 +250,28 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
     fun seleccionarIntercalacion(plantacion: PlantacionEntity?) {
         _intercalarCon.value = plantacion
         val cultivo = _selectedCultivo.value
-        if (plantacion != null && cultivo != null && cultivo.marcoCm > 0) {
-            // Al seleccionar madre: reposicionar dentro de ella y ajustar cantidad a lo que cabe.
-            _posicionX.value = plantacion.posicionXCm
-            val cabenEnMadre = plantacion.anchoCm / cultivo.marcoCm
-            _cantidad.value = cabenEnMadre.coerceAtLeast(1)
+        if (plantacion == null || cultivo == null || cultivo.marcoCm <= 0) {
+            _calidadIntercalado.value = null
+            _solapaHermana.value = false
+            if (plantacion == null) evaluarPosicion()
+            return
+        }
+        // Colocar en el primer hueco libre dentro de la madre que acepte al menos 1 planta.
+        viewModelScope.launch {
+            val huecosEnMadre = asociacionEngine.getHuecosEnMadre(plantacion)
+            val hueco = huecosEnMadre.firstOrNull { it.anchoCm >= cultivo.marcoCm }
+                ?: huecosEnMadre.maxByOrNull { it.anchoCm }
+            if (hueco != null && hueco.anchoCm >= cultivo.marcoCm) {
+                _posicionX.value = hueco.startCm
+                _cantidad.value = (hueco.anchoCm / cultivo.marcoCm).coerceAtLeast(1)
+            } else {
+                _posicionX.value = plantacion.posicionXCm
+                _cantidad.value = 1
+            }
+            val cultivoMadre = repository.getCultivo(plantacion.cultivoId)
+            _calidadIntercalado.value = cultivoMadre?.let {
+                asociacionEngine.evaluarIntercalado(cultivo, it)
+            }
             evaluarPosicion()
         }
     }
@@ -280,8 +319,16 @@ class PlantarViewModel(application: Application) : AndroidViewModel(application)
                 SugerenciaIntercalado(p, cultivoMadre, motivo)
             }
             // Si la madre seleccionada ya no está en la zona actual, limpiar
-            if (_intercalarCon.value != null && posiblesMadres.none { it.id == _intercalarCon.value?.id }) {
+            val madre = _intercalarCon.value
+            if (madre != null && posiblesMadres.none { it.id == madre.id }) {
                 _intercalarCon.value = null
+                _solapaHermana.value = false
+                _calidadIntercalado.value = null
+            } else if (madre != null) {
+                // Validar que la posición actual no pise a hermanas existentes
+                _solapaHermana.value = asociacionEngine.solapaConHermanas(madre, posX, ancho)
+            } else {
+                _solapaHermana.value = false
             }
         }
     }

@@ -61,12 +61,10 @@ fun BancalCanvas(
 
     val surfaceColor = MaterialTheme.colorScheme.surfaceVariant
     val borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-    val emptyColor = MaterialTheme.colorScheme.surface
     val textColor = MaterialTheme.colorScheme.onSurface
     val errorColor = MaterialTheme.colorScheme.error
     val primaryColor = MaterialTheme.colorScheme.primary
 
-    // Resolver colores de estado en contexto composable para pasar a DrawScope
     val estadoColors = mapOf(
         EstadoPlantacion.SEMILLERO to EstadoSemillero,
         EstadoPlantacion.TRASPLANTADO to EstadoTrasplantado,
@@ -74,6 +72,12 @@ fun BancalCanvas(
         EstadoPlantacion.COSECHANDO to EstadoCosechando,
         EstadoPlantacion.RETIRADO to EstadoRetirado
     )
+
+    // Agrupar: hijas -> su madre; madres con hijas; libres (sin hijas y sin madre)
+    val hijasPorMadreId = plantaciones
+        .filter { it.plantacion.intercaladaCon != null }
+        .groupBy { it.plantacion.intercaladaCon!! }
+    val idsMadres = hijasPorMadreId.keys
 
     Box(
         modifier = modifier
@@ -86,36 +90,28 @@ fun BancalCanvas(
                 .pointerInput(plantaciones) {
                     detectTapGestures { offset ->
                         val xCm = (offset.x / pxPerCm).toInt()
-                        val yFraction = offset.y / size.height
-
-                        // Buscar plantaciones en esta posición X
-                        val enRango = plantaciones.filter { pv ->
+                        val enX = plantaciones.filter { pv ->
                             val p = pv.plantacion
                             xCm >= p.posicionXCm && xCm <= p.posicionXCm + p.anchoCm
                         }
-
-                        val tocada = if (enRango.size <= 1) {
-                            enRango.firstOrNull()
-                        } else {
-                            // Par intercalado: madre arriba, hija abajo
-                            val hija = enRango.find { it.plantacion.intercaladaCon != null }
-                            val madre = enRango.find { it.plantacion.intercaladaCon == null }
-                            if (hija != null && madre != null) {
-                                if (yFraction < 0.5f) madre else hija
-                            } else {
-                                enRango.firstOrNull()
+                        val tocada = when {
+                            enX.isEmpty() -> null
+                            enX.size == 1 -> enX.first()
+                            else -> {
+                                // Varias plantaciones en el mismo X: distinguir por banda.
+                                // Banda superior (y < H/2) = madre/libre; inferior = hija.
+                                val topHalf = offset.y < size.height / 2f
+                                val noHija = enX.firstOrNull { it.plantacion.intercaladaCon == null }
+                                val hija = enX.firstOrNull { it.plantacion.intercaladaCon != null }
+                                if (topHalf) noHija ?: hija else hija ?: noHija
                             }
                         }
-
-                        if (tocada != null) {
-                            onTapPlantacion(tocada.plantacion)
-                        } else {
-                            onTapZonaVacia(xCm)
-                        }
+                        if (tocada != null) onTapPlantacion(tocada.plantacion)
+                        else onTapZonaVacia(xCm)
                     }
                 }
         ) {
-            // Fondo del bancal con leve gradiente vertical (sensación de cajón / tierra húmeda)
+            // Fondo del bancal con leve gradiente vertical
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
@@ -137,39 +133,16 @@ fun BancalCanvas(
                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1f)
             )
 
-            // Marcas cada metro: tick fino arriba/abajo + etiqueta con pill discreta
+            // Marcas cada metro
             for (metro in 1 until bancalLargoCm / 100) {
                 val x = metro * 100 * pxPerCm
-                // Tick superior
-                drawLine(
-                    color = borderColor,
-                    start = Offset(x, 0f),
-                    end = Offset(x, 6f),
-                    strokeWidth = 1f
-                )
-                // Tick inferior
-                drawLine(
-                    color = borderColor,
-                    start = Offset(x, size.height - 6f),
-                    end = Offset(x, size.height),
-                    strokeWidth = 1f
-                )
-                // Línea vertical muy tenue de referencia
-                drawLine(
-                    color = borderColor.copy(alpha = 0.25f),
-                    start = Offset(x, 8f),
-                    end = Offset(x, size.height - 8f),
-                    strokeWidth = 0.5f
-                )
-                // Etiqueta del metro
+                drawLine(borderColor, Offset(x, 0f), Offset(x, 6f), strokeWidth = 1f)
+                drawLine(borderColor, Offset(x, size.height - 6f), Offset(x, size.height), strokeWidth = 1f)
+                drawLine(borderColor.copy(alpha = 0.25f), Offset(x, 8f), Offset(x, size.height - 8f), strokeWidth = 0.5f)
                 val label = "${metro}m"
-                val labelStyle = TextStyle(
-                    color = textColor.copy(alpha = 0.55f),
-                    fontSize = 9.sp
-                )
+                val labelStyle = TextStyle(color = textColor.copy(alpha = 0.55f), fontSize = 9.sp)
                 val labelLayout = textMeasurer.measure(label, labelStyle)
                 val labelPad = 4f
-                // Pill de fondo
                 drawRoundRect(
                     color = surfaceColor.copy(alpha = 0.9f),
                     topLeft = Offset(x + 3f, 2f),
@@ -187,16 +160,19 @@ fun BancalCanvas(
                 )
             }
 
-            // Dibujar TODAS las plantaciones "madre" o libres a altura completa.
-            val hijas = plantaciones.filter { it.plantacion.intercaladaCon != null }
-            val noHijas = plantaciones.filter { it.plantacion.intercaladaCon == null }
-            for (pv in noHijas) {
-                drawPlantacion(pv, pxPerCm, textMeasurer, textColor, estadoColors)
-            }
-
-            // Dibujar cada hija superpuesta en su propia zona (mitad inferior).
-            for (hija in hijas) {
-                drawPlantacionSplit(hija, isTop = false, pxPerCm, textMeasurer, textColor, estadoColors, surfaceColor)
+            // 1. Libres (sin hijas) → altura completa
+            // 2. Madres con hijas → banda superior
+            // 3. Hijas → banda inferior (cada una en su rango X)
+            for (pv in plantaciones) {
+                val p = pv.plantacion
+                val esHija = p.intercaladaCon != null
+                val esMadre = p.intercaladaCon == null && idsMadres.contains(p.id)
+                val banda = when {
+                    esHija -> Banda.INFERIOR
+                    esMadre -> Banda.SUPERIOR
+                    else -> Banda.COMPLETA
+                }
+                drawPlantacionEnBanda(pv, banda, pxPerCm, textMeasurer, textColor, estadoColors)
             }
 
             // Preview fantasma de nueva plantación
@@ -210,99 +186,15 @@ fun BancalCanvas(
     }
 }
 
-private fun DrawScope.drawPlantacion(
+private enum class Banda { COMPLETA, SUPERIOR, INFERIOR }
+
+private fun DrawScope.drawPlantacionEnBanda(
     pv: PlantacionVisual,
+    banda: Banda,
     pxPerCm: Float,
     textMeasurer: TextMeasurer,
     textColor: Color,
     estadoColors: Map<EstadoPlantacion, Color>
-) {
-    val p = pv.plantacion
-    val c = pv.cultivo
-
-    val x = p.posicionXCm * pxPerCm
-    val w = p.anchoCm * pxPerCm
-    val padding = 4f
-    val h = size.height - padding * 2
-
-    val color = estadoColors[p.estado] ?: Color.Gray
-
-    // Rectángulo de la plantación con gradiente vertical (más claro arriba)
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                color.copy(alpha = 0.32f),
-                color.copy(alpha = 0.18f)
-            ),
-            startY = padding,
-            endY = padding + h
-        ),
-        topLeft = Offset(x + 2f, padding),
-        size = Size(w - 4f, h),
-        cornerRadius = CornerRadius(8f, 8f),
-        style = Fill
-    )
-
-    // Borde fino
-    drawRoundRect(
-        color = color.copy(alpha = 0.55f),
-        topLeft = Offset(x + 2f, padding),
-        size = Size(w - 4f, h),
-        cornerRadius = CornerRadius(8f, 8f),
-        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
-    )
-
-    // Puntitos: uno por planta real (slotsX × líneas)
-    val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
-    drawPlantasDots(
-        rectX = x + 2f,
-        rectY = padding,
-        rectW = w - 4f,
-        rectH = h,
-        slotsX = slotsX,
-        lineas = c.lineasPorBancal.coerceAtLeast(1),
-        color = color
-    )
-
-    // Emoji del cultivo centrado
-    if (w > 30f) {
-        val emojiStyle = TextStyle(fontSize = 20.sp)
-        val emojiLayout = textMeasurer.measure(c.icono, emojiStyle)
-        drawText(
-            textMeasurer = textMeasurer,
-            text = c.icono,
-            topLeft = Offset(
-                x + (w - emojiLayout.size.width) / 2,
-                padding + (h - emojiLayout.size.height) / 3
-            ),
-            style = emojiStyle
-        )
-
-        // Nombre debajo del emoji
-        val nameStyle = TextStyle(color = textColor, fontSize = 9.sp)
-        val nameLayout = textMeasurer.measure(c.nombre, nameStyle)
-        if (nameLayout.size.width < w - 8f) {
-            drawText(
-                textMeasurer = textMeasurer,
-                text = c.nombre,
-                topLeft = Offset(
-                    x + (w - nameLayout.size.width) / 2,
-                    padding + h * 0.6f
-                ),
-                style = nameStyle
-            )
-        }
-    }
-}
-
-private fun DrawScope.drawPlantacionSplit(
-    pv: PlantacionVisual,
-    isTop: Boolean,
-    pxPerCm: Float,
-    textMeasurer: TextMeasurer,
-    textColor: Color,
-    estadoColors: Map<EstadoPlantacion, Color>,
-    backgroundColor: Color? = null
 ) {
     val p = pv.plantacion
     val c = pv.cultivo
@@ -314,41 +206,37 @@ private fun DrawScope.drawPlantacionSplit(
     val fullH = size.height - outerPad * 2
     val halfH = (fullH - splitGap) / 2
 
-    val topY = if (isTop) outerPad else outerPad + halfH + splitGap
-    val h = halfH
-
-    val color = estadoColors[p.estado] ?: Color.Gray
-
-    // Fondo opaco para ocultar la plantación madre debajo (solo si se suministra).
-    if (backgroundColor != null) {
-        drawRoundRect(
-            color = backgroundColor,
-            topLeft = Offset(x + 2f, topY),
-            size = Size(w - 4f, h),
-            cornerRadius = CornerRadius(6f, 6f),
-            style = Fill
-        )
+    val (topY, h) = when (banda) {
+        Banda.COMPLETA -> outerPad to fullH
+        Banda.SUPERIOR -> outerPad to halfH
+        Banda.INFERIOR -> (outerPad + halfH + splitGap) to halfH
     }
 
+    val color = estadoColors[p.estado] ?: Color.Gray
+    val cornerR = if (banda == Banda.COMPLETA) 8f else 6f
+
+    // Rectángulo con gradiente vertical
     drawRoundRect(
         brush = Brush.verticalGradient(
-            colors = listOf(color.copy(alpha = 0.45f), color.copy(alpha = 0.25f)),
+            colors = listOf(color.copy(alpha = 0.32f), color.copy(alpha = 0.18f)),
             startY = topY, endY = topY + h
         ),
         topLeft = Offset(x + 2f, topY),
         size = Size(w - 4f, h),
-        cornerRadius = CornerRadius(6f, 6f),
+        cornerRadius = CornerRadius(cornerR, cornerR),
         style = Fill
     )
 
+    // Borde
     drawRoundRect(
         color = color.copy(alpha = 0.55f),
         topLeft = Offset(x + 2f, topY),
         size = Size(w - 4f, h),
-        cornerRadius = CornerRadius(6f, 6f),
+        cornerRadius = CornerRadius(cornerR, cornerR),
         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
     )
 
+    // Puntitos: uno por planta real (slotsX × líneas)
     val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
     drawPlantasDots(
         rectX = x + 2f,
@@ -360,18 +248,41 @@ private fun DrawScope.drawPlantacionSplit(
         color = color
     )
 
+    // Emoji centrado
     if (w > 30f) {
-        val emojiStyle = TextStyle(fontSize = 16.sp)
+        val emojiSize = when (banda) {
+            Banda.COMPLETA -> 20.sp
+            else -> 16.sp
+        }
+        val emojiStyle = TextStyle(fontSize = emojiSize)
         val emojiLayout = textMeasurer.measure(c.icono, emojiStyle)
+        val emojiY = when (banda) {
+            Banda.COMPLETA -> topY + (h - emojiLayout.size.height) / 3
+            else -> topY + (h - emojiLayout.size.height) / 2
+        }
         drawText(
             textMeasurer = textMeasurer,
             text = c.icono,
-            topLeft = Offset(
-                x + (w - emojiLayout.size.width) / 2,
-                topY + (h - emojiLayout.size.height) / 2
-            ),
+            topLeft = Offset(x + (w - emojiLayout.size.width) / 2, emojiY),
             style = emojiStyle
         )
+
+        // Nombre debajo del emoji solo en banda completa
+        if (banda == Banda.COMPLETA) {
+            val nameStyle = TextStyle(color = textColor, fontSize = 9.sp)
+            val nameLayout = textMeasurer.measure(c.nombre, nameStyle)
+            if (nameLayout.size.width < w - 8f) {
+                drawText(
+                    textMeasurer = textMeasurer,
+                    text = c.nombre,
+                    topLeft = Offset(
+                        x + (w - nameLayout.size.width) / 2,
+                        topY + h * 0.6f
+                    ),
+                    style = nameStyle
+                )
+            }
+        }
     }
 }
 
@@ -415,15 +326,10 @@ private fun DrawScope.drawPreview(
 
     val color = if (ocupado) errorColor else primaryColor
 
-    // Fondo semitransparente con gradiente
     drawRoundRect(
         brush = Brush.verticalGradient(
-            colors = listOf(
-                color.copy(alpha = 0.22f),
-                color.copy(alpha = 0.10f)
-            ),
-            startY = padding,
-            endY = padding + h
+            colors = listOf(color.copy(alpha = 0.22f), color.copy(alpha = 0.10f)),
+            startY = padding, endY = padding + h
         ),
         topLeft = Offset(x + 2f, padding),
         size = Size(w - 4f, h),
@@ -431,7 +337,6 @@ private fun DrawScope.drawPreview(
         style = Fill
     )
 
-    // Borde más marcado para destacar el preview
     drawRoundRect(
         color = color.copy(alpha = 0.75f),
         topLeft = Offset(x + 2f, padding),
@@ -440,7 +345,6 @@ private fun DrawScope.drawPreview(
         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f)
     )
 
-    // Emoji centrado
     if (w > 30f && emoji.isNotEmpty()) {
         val emojiStyle = TextStyle(fontSize = 20.sp)
         val emojiLayout = textMeasurer.measure(emoji, emojiStyle)

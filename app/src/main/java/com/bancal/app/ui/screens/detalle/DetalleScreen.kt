@@ -34,7 +34,7 @@ fun DetalleScreen(
 ) {
     val plantacion by viewModel.plantacion.collectAsState()
     val cultivo by viewModel.cultivo.collectAsState()
-    val companero by viewModel.companero.collectAsState()
+    val companeros by viewModel.companeros.collectAsState()
     val tratamientos by viewModel.tratamientos.collectAsState()
     val deleted by viewModel.deleted.collectAsState()
     val cosechaRegistrada by viewModel.cosechaRegistrada.collectAsState()
@@ -115,31 +115,50 @@ fun DetalleScreen(
                         }
                     }
 
-                    // Compañero intercalado
-                    companero?.let { comp ->
+                    // Compañeros intercalados (madre + hermanas si es hija, o todas las hijas si es madre)
+                    if (companeros.isNotEmpty()) {
                         item {
+                            val soyHija = p.intercaladaCon != null
+                            val titulo = if (soyHija) "Intercalado con" else "Intercalados en esta plantación"
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
                                 )
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(comp.icono, style = MaterialTheme.typography.headlineSmall)
-                                    Spacer(Modifier.width(12.dp))
-                                    Column {
-                                        Text(
-                                            "Intercalado con ${comp.nombre}",
-                                            style = MaterialTheme.typography.titleSmall
-                                        )
-                                        Text(
-                                            "Comparten el mismo espacio en el bancal",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "\uD83D\uDD17 $titulo",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    for (comp in companeros) {
+                                        Row(
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                comp.cultivo.icono,
+                                                style = MaterialTheme.typography.titleMedium
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            val etiquetaRol = when (comp.rol) {
+                                                com.bancal.app.ui.screens.detalle.DetalleViewModel.Companero.Rol.MADRE -> "madre"
+                                                com.bancal.app.ui.screens.detalle.DetalleViewModel.Companero.Rol.HERMANA -> "hermana"
+                                                com.bancal.app.ui.screens.detalle.DetalleViewModel.Companero.Rol.HIJA -> "hija"
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    comp.cultivo.nombre,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Text(
+                                                    "$etiquetaRol · ${comp.plantacion.posicionXCm}cm · ${comp.plantacion.anchoCm}cm de ancho",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }

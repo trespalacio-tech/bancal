@@ -33,12 +33,16 @@ class DetalleViewModel(application: Application) : AndroidViewModel(application)
     private val _tratamientos = MutableStateFlow<List<TratamientoEntity>>(emptyList())
     val tratamientos: StateFlow<List<TratamientoEntity>> = _tratamientos
 
-    // Compañero intercalado (si existe)
-    private val _companero = MutableStateFlow<CultivoEntity?>(null)
-    val companero: StateFlow<CultivoEntity?> = _companero
-
-    private val _companeroPlantacion = MutableStateFlow<PlantacionEntity?>(null)
-    val companeroPlantacion: StateFlow<PlantacionEntity?> = _companeroPlantacion
+    // Compañeros intercalados (madre + hermanas si es hija; todas las hijas si es madre)
+    data class Companero(
+        val plantacion: PlantacionEntity,
+        val cultivo: CultivoEntity,
+        val rol: Rol
+    ) {
+        enum class Rol { MADRE, HIJA, HERMANA }
+    }
+    private val _companeros = MutableStateFlow<List<Companero>>(emptyList())
+    val companeros: StateFlow<List<Companero>> = _companeros
 
     private val _deleted = MutableStateFlow(false)
     val deleted: StateFlow<Boolean> = _deleted
@@ -54,19 +58,33 @@ class DetalleViewModel(application: Application) : AndroidViewModel(application)
             _plantacion.value = p
             _cultivo.value = repository.getCultivo(p.cultivoId)
 
-            // Cargar compañero intercalado
+            val lista = mutableListOf<Companero>()
             if (p.intercaladaCon != null) {
-                // Esta es la hija: mostrar la madre como compañera
+                // Hija: madre + hermanas (otras hijas de la misma madre)
                 val madre = repository.getPlantacion(p.intercaladaCon)
-                _companeroPlantacion.value = madre
-                _companero.value = madre?.let { repository.getCultivo(it.cultivoId) }
+                if (madre != null) {
+                    repository.getCultivo(madre.cultivoId)?.let {
+                        lista += Companero(madre, it, Companero.Rol.MADRE)
+                    }
+                    val hermanas = repository.getIntercalados(madre.id)
+                        .filter { it.id != p.id }
+                        .sortedBy { it.posicionXCm }
+                    for (h in hermanas) {
+                        repository.getCultivo(h.cultivoId)?.let {
+                            lista += Companero(h, it, Companero.Rol.HERMANA)
+                        }
+                    }
+                }
             } else {
-                // Esta podría ser la madre: buscar hija
-                val hijas = repository.getIntercalados(p.id)
-                val hija = hijas.firstOrNull()
-                _companeroPlantacion.value = hija
-                _companero.value = hija?.let { repository.getCultivo(it.cultivoId) }
+                // Madre: todas las hijas
+                val hijas = repository.getIntercalados(p.id).sortedBy { it.posicionXCm }
+                for (h in hijas) {
+                    repository.getCultivo(h.cultivoId)?.let {
+                        lista += Companero(h, it, Companero.Rol.HIJA)
+                    }
+                }
             }
+            _companeros.value = lista
         }
 
         tratamientosJob?.cancel()

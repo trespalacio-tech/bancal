@@ -424,12 +424,32 @@ fun BancalScreen(
                     EmptyBancalState()
                 }
             } else {
+                // Precomputar compañeros: id -> lista de (emoji, nombre) relacionados
+                val byId = plantaciones.associateBy { it.plantacion.id }
+                val hijasPorMadre = plantaciones
+                    .filter { it.plantacion.intercaladaCon != null }
+                    .groupBy { it.plantacion.intercaladaCon!! }
                 items(
                     sortedPlantaciones,
                     key = { it.plantacion.id }
                 ) { pv ->
+                    val companeros: List<Pair<String, String>> = run {
+                        val madreId = pv.plantacion.intercaladaCon
+                        if (madreId != null) {
+                            // Hija: mostrar madre
+                            val madre = byId[madreId]
+                            if (madre != null) listOf(madre.cultivo.icono to madre.cultivo.nombre)
+                            else emptyList()
+                        } else {
+                            // Madre: mostrar hijas
+                            hijasPorMadre[pv.plantacion.id].orEmpty()
+                                .map { it.cultivo.icono to it.cultivo.nombre }
+                        }
+                    }
                     PlantacionListItem(
                         plantacionVisual = pv,
+                        companeros = companeros,
+                        esHija = pv.plantacion.intercaladaCon != null,
                         onClick = { onNavigateToDetalle(pv.plantacion.id) }
                     )
                     Spacer(Modifier.height(8.dp))
@@ -777,6 +797,8 @@ private fun HelperChip(riesgo: CalendarioEngine.RiesgoHelada) {
 @Composable
 private fun PlantacionListItem(
     plantacionVisual: PlantacionVisual,
+    companeros: List<Pair<String, String>> = emptyList(),
+    esHija: Boolean = false,
     onClick: () -> Unit
 ) {
     val p = plantacionVisual.plantacion
@@ -888,6 +910,23 @@ private fun PlantacionListItem(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (companeros.isNotEmpty()) {
+                    Spacer(Modifier.height(2.dp))
+                    val etiqueta = if (esHija) {
+                        "\uD83D\uDD17 con ${companeros.first().second}"
+                    } else {
+                        val iconos = companeros.joinToString(" ") { it.first }
+                        val n = companeros.size
+                        "\uD83D\uDD17 intercalado: $iconos ($n)"
+                    }
+                    Text(
+                        text = etiqueta,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
             }
             Column(
                 horizontalAlignment = Alignment.End,
