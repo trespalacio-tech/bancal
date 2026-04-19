@@ -93,10 +93,13 @@ fun DetalleScreen(
                             )
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
+                                val slotsX = if (c.marcoCm > 0) (p.anchoCm / c.marcoCm).coerceAtLeast(1) else 1
+                                val totalPlantas = slotsX * c.lineasPorBancal.coerceAtLeast(1)
                                 CultivoInfoRow("Estado", p.estado.name.lowercase().replaceFirstChar { it.uppercase() })
-                                CultivoInfoRow("Tipo de siembra", p.tipoSiembra.name.lowercase())
-                                CultivoInfoRow("Posición", "${p.posicionXCm}cm (${p.posicionXCm / 100f}m)")
-                                CultivoInfoRow("Espacio", "${p.anchoCm}cm")
+                                CultivoInfoRow("Tipo de siembra", p.tipoSiembra.name.lowercase().replaceFirstChar { it.uppercase() })
+                                CultivoInfoRow("Posición", formatCm(p.posicionXCm))
+                                CultivoInfoRow("Espacio", formatCm(p.anchoCm))
+                                CultivoInfoRow("Plantas", "$totalPlantas")
                                 CultivoInfoRow(
                                     "Fecha de siembra",
                                     Instant.ofEpochMilli(p.fechaSiembra).atZone(zone).format(formatter)
@@ -153,7 +156,7 @@ fun DetalleScreen(
                                                     style = MaterialTheme.typography.bodyMedium
                                                 )
                                                 Text(
-                                                    "$etiquetaRol · ${comp.plantacion.posicionXCm}cm · ${comp.plantacion.anchoCm}cm de ancho",
+                                                    "$etiquetaRol · ${formatCm(comp.plantacion.posicionXCm)} · ${formatCm(comp.plantacion.anchoCm)} de ancho",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -198,8 +201,8 @@ fun DetalleScreen(
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 CultivoInfoRow("Familia", c.familia.name.lowercase().replaceFirstChar { it.uppercase() })
-                                CultivoInfoRow("Marco", "${c.marcoCm}cm")
-                                CultivoInfoRow("Riego", c.riego.name.lowercase())
+                                CultivoInfoRow("Marco", "${c.marcoCm} cm")
+                                CultivoInfoRow("Riego", c.riego.name.lowercase().replaceFirstChar { it.uppercase() })
                                 CultivoInfoRow("Temp. mínima", "${c.temperaturaMinima}°C")
                                 CultivoInfoRow("Temp. óptima", "${c.temperaturaOptima}°C")
                                 if (c.notas.isNotBlank()) {
@@ -235,7 +238,7 @@ fun DetalleScreen(
                             Card(modifier = Modifier.fillMaxWidth()) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     Text(
-                                        "${t.tipo.name.lowercase()} — ${t.producto}",
+                                        "${t.tipo.name.lowercase().replaceFirstChar { it.uppercase() }} — ${t.producto}",
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                     Text(
@@ -314,4 +317,13 @@ fun DetalleScreen(
             }
         )
     }
+}
+
+private fun formatCm(cm: Int): String {
+    if (cm < 100) return "$cm cm"
+    if (cm % 100 == 0) return "${cm / 100} m"
+    val entero = cm / 100
+    val decimales = cm % 100
+    return if (decimales % 10 == 0) "$entero,${decimales / 10} m"
+    else "$entero,${decimales.toString().padStart(2, '0')} m"
 }
