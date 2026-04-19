@@ -24,6 +24,7 @@ import com.bancal.app.ui.theme.*
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +52,7 @@ fun DetalleScreen(
         }
     }
 
-    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale("es", "ES"))
     val zone = ZoneId.of("Europe/Madrid")
 
     Scaffold(

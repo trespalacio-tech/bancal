@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.bancal.app.domain.logic.SucesionEngine
 import com.bancal.app.ui.theme.*
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,7 +23,7 @@ fun SucesionScreen(
     onBack: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
-    val formatter = DateTimeFormatter.ofPattern("dd MMM")
+    val formatter = DateTimeFormatter.ofPattern("dd MMM", Locale("es", "ES"))
 
     Scaffold(
         topBar = {

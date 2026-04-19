@@ -84,7 +84,7 @@ fun AlertaCard(
 }
 
 private fun formatFecha(epochMillis: Long): String {
-    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale("es", "ES"))
     return Instant.ofEpochMilli(epochMillis)
         .atZone(ZoneId.of("Europe/Madrid"))
         .format(formatter)

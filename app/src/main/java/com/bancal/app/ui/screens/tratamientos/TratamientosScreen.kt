@@ -18,6 +18,7 @@ import com.bancal.app.ui.theme.ErrorLight
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private fun TipoTratamiento.displayName(): String = when (this) {
     TipoTratamiento.RIEGO -> "Riego"
@@ -37,7 +38,7 @@ fun TratamientosScreen(viewModel: TratamientosViewModel) {
     val showDialog by viewModel.showDialog.collectAsState()
     val plantaciones by viewModel.plantacionesActivas.collectAsState()
 
-    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale("es", "ES"))
     val zone = ZoneId.of("Europe/Madrid")
 
     Box(modifier = Modifier.fillMaxSize()) {

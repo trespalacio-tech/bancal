@@ -48,7 +48,7 @@ fun DiarioScreen(
     val editando by viewModel.editando.collectAsState()
     val fotoPath by viewModel.fotoPath.collectAsState()
 
-    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+    val formatter = DateTimeFormatter.ofPattern("dd MMM yyyy", java.util.Locale("es", "ES"))
     val zone = ZoneId.of("Europe/Madrid")
 
     Scaffold(
